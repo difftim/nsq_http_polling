@@ -1,2 +1,2 @@
-# nsq http long polling
+# nsq-http-polling
 This is an NSQ client that reads the specified topic/channel and re-publishes as Http long-polling
