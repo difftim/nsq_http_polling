@@ -23,30 +23,28 @@ var (
 	lookupdHTTPAddr = flag.String("lookupd-http-address", ":4161", "lookupd HTTP address")
 )
 
-type Foo struct {
+// A pump, consume nsq.Message and publish as Http Response
+type Pump struct {
 	ch   chan *nsq.Message
-	done chan bool
-	w    http.ResponseWriter
-	r    *http.Request
-	c    *nsq.Consumer
+	done chan bool // this nsq.Message has send to http socket
+	nc   *nsq.Consumer
 }
 
-func New(w http.ResponseWriter, r *http.Request) *Foo {
-	return &Foo{
+func New() *Pump {
+	return &Pump{
 		ch:   make(chan *nsq.Message, 1),
 		done: make(chan bool, 1),
-		w:    w,
-		r:    r,
 	}
 }
 
-func (foo *Foo) Start(topic, channel string) error {
+// start nsq client consumer
+func (p *Pump) Start(topic, channel string) error {
 	c, err := nsq.NewConsumer(topic, channel, nsq.NewConfig())
 	if err != nil {
 		return err
 	}
 
-	c.AddHandler(foo)
+	c.AddHandler(p)
 
 	if *nsqdTCPAddr != "" {
 		e := c.ConnectToNSQD(*nsqdTCPAddr)
@@ -59,13 +57,14 @@ func (foo *Foo) Start(topic, channel string) error {
 			return e
 		}
 	}
-	foo.c = c
+	p.nc = c
 	return nil
 }
 
-func (foo *Foo) HandleMessage(message *nsq.Message) error {
-	foo.ch <- message
-	flag := <-foo.done
+// Handle nsq message
+func (p *Pump) HandleMessage(message *nsq.Message) error {
+	p.ch <- message
+	flag := <-p.done
 
 	if !flag {
 		return errors.New("not done")
@@ -73,7 +72,7 @@ func (foo *Foo) HandleMessage(message *nsq.Message) error {
 	return nil
 }
 
-func (foo *Foo) Handle(w http.ResponseWriter, r *http.Request) {
+func (p *Pump) Handle(w http.ResponseWriter, r *http.Request) {
 	f, ok := w.(http.Flusher)
 	if !ok {
 		w.WriteHeader(400)
@@ -102,42 +101,44 @@ func (foo *Foo) Handle(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() != nil {
-			foo.ch <- nil
+			close(p.ch) // better than p.ch <- nil
 		}
 	}()
 
-	if err := foo.Start(topic_name, channel_name); err != nil {
+	if err := p.Start(topic_name, channel_name); err != nil {
 		w.WriteHeader(500)
 		return
 	}
 
 	w.WriteHeader(200)
-	m := <-foo.ch
+	m := <-p.ch
 
 	if m == nil {
 		log.Printf("client closed")
-		foo.done <- false
-		foo.c.Stop()
+		p.done <- false
+		p.nc.Stop()
 		return
 	}
 
 	w.Write(m.Body)
 	f.Flush()
 
-	foo.c.Stop()
+	p.nc.Stop()
 
-	foo.done <- true
+	p.done <- true
 }
 
 func main() {
 	flag.Parse()
 
+	//
 	termChan := make(chan os.Signal, 1)
 	signal.Notify(termChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// http server, use default mux
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		f := New(w, r)
-		f.Handle(w, r)
+		pump := New()
+		pump.Handle(w, r)
 	})
 	log.Fatal(http.ListenAndServe(*address, nil))
 }
