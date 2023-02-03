@@ -98,6 +98,14 @@ func (foo *Foo) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
+	go func() {
+		<-ctx.Done()
+		if ctx.Err() != nil {
+			foo.ch <- nil
+		}
+	}()
+
 	if err := foo.Start(topic_name, channel_name); err != nil {
 		w.WriteHeader(500)
 		return
@@ -105,6 +113,13 @@ func (foo *Foo) Handle(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(200)
 	m := <-foo.ch
+
+	if m == nil {
+		log.Printf("client closed")
+		foo.done <- false
+		foo.c.Stop()
+		return
+	}
 
 	w.Write(m.Body)
 	f.Flush()
