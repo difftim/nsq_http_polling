@@ -72,6 +72,7 @@ func (p *Pump) HandleMessage(message *nsq.Message) error {
 	return nil
 }
 
+// curl -vs 'http://127.0.0.1:4152/?topic=foo&channel=bar'
 func (p *Pump) Handle(w http.ResponseWriter, r *http.Request) {
 	f, ok := w.(http.Flusher)
 	if !ok {
@@ -79,19 +80,19 @@ func (p *Pump) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reqParams, err := url.ParseQuery(r.URL.RawQuery)
+	params, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		w.WriteHeader(400)
 		return
 	}
 
-	topic_name := reqParams.Get("topic")
+	topic_name := params.Get("topic")
 	if topic_name == "" {
 		w.WriteHeader(400)
 		return
 	}
 
-	channel_name := reqParams.Get("channel")
+	channel_name := params.Get("channel")
 	if channel_name == "" {
 		w.WriteHeader(400)
 		return
