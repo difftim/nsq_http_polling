@@ -1,6 +1,6 @@
 module http_polling
 
-go 1.19
+go 1.14
 
 require github.com/nsqio/go-nsq v1.1.0
 
